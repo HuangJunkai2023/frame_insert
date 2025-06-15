@@ -69,57 +69,6 @@ def draw_reference_line(image_path):
     else:
         return None, None
 
-def adain(content_feat, style_feat, eps=1e-5):
-    size = content_feat.size()
-    content_mean, content_std = content_feat.view(size[0], size[1], -1).mean(2), content_feat.view(size[0], size[1], -1).std(2) + eps
-    style_mean, style_std = style_feat.view(size[0], size[1], -1).mean(2), style_feat.view(size[0], size[1], -1).std(2) + eps
-    normalized = (content_feat - content_mean[:,:,None,None]) / content_std[:,:,None,None]
-    return normalized * style_std[:,:,None,None] + style_mean[:,:,None,None]
-
-def extract_vgg_features(img_tensor, vgg, layers=[21]):
-    features = []
-    x = img_tensor
-    for i, layer in enumerate(vgg.features):
-        x = layer(x)
-        if i in layers:
-            features.append(x)
-    return features[0]
-
-def style_transfer(content_img, style_img):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    vgg = vgg19(pretrained=True).to(device).eval()
-    for param in vgg.parameters():
-        param.requires_grad = False
-    transform = T.Compose([
-        T.ToTensor(),
-        T.Resize((content_img.size[1], content_img.size[0])),
-        T.Lambda(lambda x: x[:3, :, :]),  # 只取RGB
-        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    inv_transform = T.Compose([
-        T.Normalize(mean=[-2.118, -2.036, -1.804], std=[4.367, 4.464, 4.444]),
-        T.Lambda(lambda x: torch.clamp(x, 0, 1)),
-        T.ToPILImage()
-    ])
-    content = transform(content_img).unsqueeze(0).to(device)
-    style = transform(style_img).unsqueeze(0).to(device)
-    # 检查尺寸
-    if content.shape[2] < 8 or content.shape[3] < 8 or style.shape[2] < 8 or style.shape[3] < 8:
-        raise ValueError("内容图或风格图尺寸过小，跳过风格迁移")
-    content_feat = extract_vgg_features(content, vgg)
-    style_feat = extract_vgg_features(style, vgg)
-    if content_feat.shape[1] != style_feat.shape[1]:
-        raise ValueError("风格迁移特征通道不一致，跳过风格迁移")
-    t = adain(content_feat, style_feat)
-    # 直接反归一化回图像
-    t_img = t[0].cpu()
-    t_img = inv_transform(t_img)
-    # 保留alpha通道
-    if content_img.mode == "RGBA":
-        t_img = t_img.convert("RGBA")
-        t_img.putalpha(content_img.split()[-1])
-    return t_img
-
 def insert_object_to_frame(frame_path, insert_img_path, object_width, save_path, line_coords=None, mask_save_path=None):
     frame = Image.open(frame_path).convert("RGBA")
     insert_obj = Image.open(insert_img_path).convert("RGBA")
@@ -138,23 +87,7 @@ def insert_object_to_frame(frame_path, insert_img_path, object_width, save_path,
     else:
         cx, cy = 0, 0
 
-    # === 风格迁移 ===
-    # 取背景区域作为风格图
-    bg_crop = frame.crop((max(cx,0), max(cy,0), max(cx,0)+insert_obj.width, max(cy,0)+insert_obj.height)).convert("RGB")
-    insert_rgb = insert_obj.convert("RGB")
-    try:
-        # 仅当插入物体和背景区域都大于8x8时才做风格迁移
-        if insert_rgb.width >= 8 and insert_rgb.height >= 8 and bg_crop.width >= 8 and bg_crop.height >= 8:
-            stylized_obj = style_transfer(insert_rgb, bg_crop)
-            # 保留alpha通道
-            if insert_obj.mode == "RGBA":
-                stylized_obj = stylized_obj.convert("RGBA")
-                stylized_obj.putalpha(insert_obj.split()[-1])
-            insert_obj = stylized_obj
-        else:
-            raise ValueError("风格迁移区域过小，跳过风格迁移")
-    except Exception as e:
-        print("风格迁移失败，使用原图:", e)
+    # === 删除风格迁移相关代码，直接使用 insert_obj ===
 
     # === 蒙版羽化 ===
     from PIL import ImageEnhance, ImageFilter
@@ -336,6 +269,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-if __name__ == "__main__":
-    main()
 

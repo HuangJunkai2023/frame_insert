@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torchvision.transforms as T
 from torchvision.models import vgg19
+import subprocess
 
 # ====== 在此处直接设置参数 ======
 frames_dir = r"D:\_mmlab_swjtu\data\night\bergen_night\bergen01_night"
@@ -56,7 +57,11 @@ def draw_reference_line(image_path):
     canvas.bind("<Button-3>", on_click)
     root.bind("<Return>", on_return)
     root.mainloop()
-    root.destroy()
+    # 修复TclError：用try/except包裹destroy，避免已销毁时报错
+    try:
+        root.destroy()
+    except tk.TclError:
+        pass
     if len(line) == 2:
         x0, y0 = line[0]
         x1, y1 = line[1]
@@ -130,17 +135,17 @@ def insert_object_to_frame(frame_path, insert_img_path, object_width, save_path,
 
     # === 风格迁移 ===
     # 取背景区域作为风格图
-    bg_crop = frame.crop((max(cx,0), max(cy,0), max(cx,0)+insert_obj.width, max(cy,0)+insert_obj.height)).convert("RGB")
-    insert_rgb = insert_obj.convert("RGB")
-    try:
-        stylized_obj = style_transfer(insert_rgb, bg_crop)
-        # 保留alpha通道
-        if insert_obj.mode == "RGBA":
-            stylized_obj = stylized_obj.convert("RGBA")
-            stylized_obj.putalpha(insert_obj.split()[-1])
-        insert_obj = stylized_obj
-    except Exception as e:
-        print("风格迁移失败，使用原图:", e)
+    # bg_crop = frame.crop((max(cx,0), max(cy,0), max(cx,0)+insert_obj.width, max(cy,0)+insert_obj.height)).convert("RGB")
+    # insert_rgb = insert_obj.convert("RGB")
+    # try:
+    #     stylized_obj = style_transfer(insert_rgb, bg_crop)
+    #     # 保留alpha通道
+    #     if insert_obj.mode == "RGBA":
+    #         stylized_obj = stylized_obj.convert("RGBA")
+    #         stylized_obj.putalpha(insert_obj.split()[-1])
+    #     insert_obj = stylized_obj
+    # except Exception as e:
+    #     print("风格迁移失败，使用原图:", e)
 
     # === 蒙版羽化 ===
     from PIL import ImageEnhance, ImageFilter
@@ -252,6 +257,26 @@ def select_start_frame(frames, start_idx):
     root.destroy()
     return idx
 
+def save_video_from_images(image_dir, output_video_path, fps=5):
+    # 获取所有jpg图片并排序
+    images = [f for f in os.listdir(image_dir) if f.endswith('.jpg') and not f.endswith('_mask.jpg')]
+    images.sort()
+    if not images:
+        print("没有找到合成图片，无法生成视频")
+        return
+    # 读取第一张图片确定尺寸
+    first_img = cv2.imread(os.path.join(image_dir, images[0]))
+    height, width = first_img.shape[:2]
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
+    for img_name in images:
+        img_path = os.path.join(image_dir, img_name)
+        img = cv2.imread(img_path)
+        if img is not None:
+            video_writer.write(img)
+    video_writer.release()
+    print(f"视频已保存到: {output_video_path}")
+
 def main():
     os.makedirs(output_dir, exist_ok=True)
     frames = get_sorted_frames(frames_dir)
@@ -270,6 +295,7 @@ def main():
 
     # 从末尾帧向前，每隔30帧，直到用户关闭窗口
     idx = end_idx
+    saved_frames = []
     while idx >= 0:
         frame_path = os.path.join(frames_dir, frames[idx])
         print(f"处理帧: {frames[idx]}")
@@ -281,7 +307,25 @@ def main():
         mask_save_path = os.path.splitext(save_path)[0] + "_mask.jpg"
         insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords, mask_save_path)
         print(f"已保存: {save_path} 及 {mask_save_path}")
+        saved_frames.append(frames[idx])
         idx -= 30
+
+    # 标注结束后生成视频（只用本次合成的图片，按标注顺序）
+    if saved_frames:
+        video_frames = [os.path.join(output_dir, fname) for fname in saved_frames]
+        # 反转顺序保证视频播放顺序与标注顺序一致
+        video_frames = video_frames[::-1]
+        # 临时保存排序后的图片
+        temp_dir = os.path.join(output_dir, "_video_temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        for i, img_path in enumerate(video_frames):
+            img = cv2.imread(img_path)
+            cv2.imwrite(os.path.join(temp_dir, f"{i:04d}.jpg"), img)
+        save_video_from_images(temp_dir, os.path.join(output_dir, "result.mp4"), fps=5)
+        # 清理临时图片
+        for f in os.listdir(temp_dir):
+            os.remove(os.path.join(temp_dir, f))
+        os.rmdir(temp_dir)
 
 if __name__ == "__main__":
     main()

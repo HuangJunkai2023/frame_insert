@@ -247,7 +247,7 @@ def main():
     # 允许用户通过方向键选择末尾帧
     end_idx = select_start_frame(frames, end_idx)
 
-    # 从末尾帧向前，每隔30帧，直到用户关闭窗口
+    # 从末尾帧向前，每隔10帧，直到用户关闭窗口
     idx = end_idx
     while idx >= 0:
         frame_path = os.path.join(frames_dir, frames[idx])
@@ -260,11 +260,11 @@ def main():
         mask_save_path = os.path.splitext(save_path)[0] + "_mask.jpg"
         insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords, mask_save_path)
         print(f"已保存: {save_path} 及 {mask_save_path}")
-        idx -= 30
+        idx -= 10
 
     # === 合成视频 ===
-    output_video = os.path.join(output_dir, "output_1fps.mp4")
-    images_to_video(output_dir, output_video, fps=1)
+    output_video = os.path.join(output_dir, "output_5fps.mp4")
+    images_to_video(output_dir, output_video, fps=5)
 
 if __name__ == "__main__":
     main()

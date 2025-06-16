@@ -362,7 +362,7 @@ def main():
     mark_indices = mark_indices[::-1]
 
     # 3. 对每一帧进行平滑插值，生成所有帧的中心点和长度
-    # 使用三次样条插值+更强的高斯滤波+移动平均多重平滑
+    # 使用三次样条插值+更强的高斯滤波+多重移动平均极致平滑
     from scipy.ndimage import gaussian_filter1d, uniform_filter1d
     from scipy.interpolate import CubicSpline
 
@@ -387,22 +387,23 @@ def main():
     cy_interp = cs_y(interp_frames)
     l_interp = cs_l(interp_frames)
 
-    # 多重平滑：先高斯，再移动平均，再高斯
-    sigma1 = 20
-    sigma2 = 10
-    win = 31  # 移动平均窗口，需为奇数
+    # 极致平滑：多次高斯+多次移动平均
+    sigma1 = 30
+    sigma2 = 20
+    win1 = 51
+    win2 = 31
 
-    cx_smooth = gaussian_filter1d(cx_interp, sigma=sigma1, mode='nearest')
-    cx_smooth = uniform_filter1d(cx_smooth, size=win, mode='nearest')
-    cx_smooth = gaussian_filter1d(cx_smooth, sigma=sigma2, mode='nearest')
+    def super_smooth(arr):
+        arr = gaussian_filter1d(arr, sigma=sigma1, mode='nearest')
+        arr = uniform_filter1d(arr, size=win1, mode='nearest')
+        arr = gaussian_filter1d(arr, sigma=sigma2, mode='nearest')
+        arr = uniform_filter1d(arr, size=win2, mode='nearest')
+        arr = gaussian_filter1d(arr, sigma=8, mode='nearest')
+        return arr
 
-    cy_smooth = gaussian_filter1d(cy_interp, sigma=sigma1, mode='nearest')
-    cy_smooth = uniform_filter1d(cy_smooth, size=win, mode='nearest')
-    cy_smooth = gaussian_filter1d(cy_smooth, sigma=sigma2, mode='nearest')
-
-    l_smooth = gaussian_filter1d(l_interp, sigma=sigma1, mode='nearest')
-    l_smooth = uniform_filter1d(l_smooth, size=win, mode='nearest')
-    l_smooth = gaussian_filter1d(l_smooth, sigma=sigma2, mode='nearest')
+    cx_smooth = super_smooth(cx_interp)
+    cy_smooth = super_smooth(cy_interp)
+    l_smooth = super_smooth(l_interp)
 
     interp_centers = list(zip(cx_smooth.astype(int), cy_smooth.astype(int)))
     interp_lengths = list(l_smooth)

@@ -361,8 +361,8 @@ def main():
     mark_indices = mark_indices[::-1]
 
     # 3. 对每一帧进行平滑插值，生成所有帧的中心点和长度
-    # 使用一维插值并高斯滤波平滑
-    from scipy.ndimage import gaussian_filter1d
+    # 使用三次样条插值+更强的高斯滤波+移动平均多重平滑
+    from scipy.ndimage import gaussian_filter1d, uniform_filter1d
     from scipy.interpolate import CubicSpline
 
     all_indices = []
@@ -386,14 +386,25 @@ def main():
     cy_interp = cs_y(interp_frames)
     l_interp = cs_l(interp_frames)
 
-    # 增大sigma进一步平滑（可尝试更大值，如12或15）
-    sigma = 15
-    cx_interp_smooth = gaussian_filter1d(cx_interp, sigma=sigma)
-    cy_interp_smooth = gaussian_filter1d(cy_interp, sigma=sigma)
-    l_interp_smooth = gaussian_filter1d(l_interp, sigma=sigma)
+    # 多重平滑：先高斯，再移动平均，再高斯
+    sigma1 = 20
+    sigma2 = 10
+    win = 31  # 移动平均窗口，需为奇数
 
-    interp_centers = list(zip(cx_interp_smooth.astype(int), cy_interp_smooth.astype(int)))
-    interp_lengths = list(l_interp_smooth)
+    cx_smooth = gaussian_filter1d(cx_interp, sigma=sigma1, mode='nearest')
+    cx_smooth = uniform_filter1d(cx_smooth, size=win, mode='nearest')
+    cx_smooth = gaussian_filter1d(cx_smooth, sigma=sigma2, mode='nearest')
+
+    cy_smooth = gaussian_filter1d(cy_interp, sigma=sigma1, mode='nearest')
+    cy_smooth = uniform_filter1d(cy_smooth, size=win, mode='nearest')
+    cy_smooth = gaussian_filter1d(cy_smooth, sigma=sigma2, mode='nearest')
+
+    l_smooth = gaussian_filter1d(l_interp, sigma=sigma1, mode='nearest')
+    l_smooth = uniform_filter1d(l_smooth, size=win, mode='nearest')
+    l_smooth = gaussian_filter1d(l_smooth, sigma=sigma2, mode='nearest')
+
+    interp_centers = list(zip(cx_smooth.astype(int), cy_smooth.astype(int)))
+    interp_lengths = list(l_smooth)
 
     # 4. 重新插入物体，匀速且平滑运动
     for idx, (frame_idx, frame_name) in enumerate(zip(all_indices, [frames[i] for i in all_indices])):
@@ -412,7 +423,7 @@ def main():
     for i, img_path in enumerate(video_frames):
         img = cv2.imread(img_path)
         cv2.imwrite(os.path.join(temp_dir, f"{i:04d}.jpg"), img)
-    save_video_from_images(temp_dir, os.path.join(output_dir, "result.mp4"), fps=20)
+    save_video_from_images(temp_dir, os.path.join(output_dir, "result.mp4"), fps=30)
     for f in os.listdir(temp_dir):
         os.remove(os.path.join(temp_dir, f))
     os.rmdir(temp_dir)

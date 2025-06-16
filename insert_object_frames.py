@@ -8,6 +8,7 @@ import torch
 import torchvision.transforms as T
 from torchvision.models import vgg19
 import subprocess
+import scipy.interpolate
 
 # ====== 在此处直接设置参数 ======
 frames_dir = "/media/huang/NVMe/_mmlab_swjtu/data/night/bergen_night/bergen01_night"
@@ -27,7 +28,7 @@ def get_sorted_frames(folder):
 def get_frame_indices(start_idx, step, count):
     return [start_idx + i * step for i in range(count)]
 
-def draw_reference_line(image_path):
+def draw_reference_line(image_path, last_line=None):
     root = tk.Tk()
     root.title("请画一条参考线（左键画线，右键重画，回车确认）")
     img = Image.open(image_path)
@@ -36,6 +37,11 @@ def draw_reference_line(image_path):
     canvas.pack()
     canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
     line = []
+
+    # 如果有上一次的线，先画出来（绿色）
+    if last_line is not None:
+        x0, y0, x1, y1 = last_line
+        canvas.create_line(x0, y0, x1, y1, fill='green', width=2, dash=(4, 2))
 
     def on_click(event):
         # 左键：画线
@@ -49,6 +55,10 @@ def draw_reference_line(image_path):
             line.clear()
             canvas.delete("all")
             canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
+            # 重新画上一次的线（绿色）
+            if last_line is not None:
+                x0, y0, x1, y1 = last_line
+                canvas.create_line(x0, y0, x1, y1, fill='green', width=2, dash=(4, 2))
 
     def on_return(event):
         root.quit()
@@ -57,14 +67,18 @@ def draw_reference_line(image_path):
     canvas.bind("<Button-3>", on_click)
     root.bind("<Return>", on_return)
     root.mainloop()
-    # 修复TclError：用try/except包裹destroy，避免已销毁时报错
     try:
         root.destroy()
     except tk.TclError:
         pass
+    # 如果没画线，直接用上一次的线
     if len(line) == 2:
         x0, y0 = line[0]
         x1, y1 = line[1]
+        length = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        return length, (x0, y0, x1, y1)
+    elif last_line is not None:
+        x0, y0, x1, y1 = last_line
         length = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
         return length, (x0, y0, x1, y1)
     else:
@@ -116,7 +130,7 @@ def style_transfer(content_img, style_img):
         t_img.putalpha(content_img.split()[-1])
     return t_img
 
-def insert_object_to_frame(frame_path, insert_img_path, object_width, save_path, line_coords=None, mask_save_path=None):
+def insert_object_to_frame(frame_path, insert_img_path, object_width, save_path, line_coords=None, mask_save_path=None, center=None):
     frame = Image.open(frame_path).convert("RGBA")
     insert_obj = Image.open(insert_img_path).convert("RGBA")
     w_percent = object_width / insert_obj.width
@@ -135,6 +149,10 @@ def insert_object_to_frame(frame_path, insert_img_path, object_width, save_path,
         insert_obj = insert_obj.rotate(-angle, expand=True, resample=Image.BICUBIC)
         cx = int((x0 + x1) / 2 - insert_obj.width / 2)
         cy = int((y0 + y1) / 2 - insert_obj.height / 2)
+    elif center is not None:
+        # 用插值中心点，确保物体中心在插值点
+        cx = int(center[0] - insert_obj.width / 2)
+        cy = int(center[1] - insert_obj.height / 2)
     else:
         cx, cy = 0, 0
 
@@ -298,39 +316,98 @@ def main():
     # 允许用户通过方向键选择末尾帧
     end_idx = select_start_frame(frames, end_idx)
 
-    # 从末尾帧向前，每隔5帧，直到用户关闭窗口
+    # 1. 标注阶段，记录每个标注帧的中心点和长度
     idx = end_idx
     saved_frames = []
+    centers = []
+    lengths = []
+    mark_indices = []
+    last_line = None
     while idx >= 0:
         frame_path = os.path.join(frames_dir, frames[idx])
         print(f"处理帧: {frames[idx]}")
-        length, line_coords = draw_reference_line(frame_path)
+        length, line_coords = draw_reference_line(frame_path, last_line=last_line)
         if length is None:
             print("窗口关闭，停止标注")
             break
         save_path = os.path.join(output_dir, frames[idx])
         mask_save_path = os.path.splitext(save_path)[0] + "_mask.jpg"
-        insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords, mask_save_path)
+        # 计算中心点
+        if line_coords:
+            x0, y0, x1, y1 = line_coords
+            cx = int((x0 + x1) / 2)
+            cy = int((y0 + y1) / 2)
+        else:
+            cx, cy = 0, 0
+        centers.append((cx, cy))
+        lengths.append(length)
+        saved_frames.append((idx, frames[idx], line_coords, length))
+        mark_indices.append(idx)
+        last_line = line_coords  # 记录本次线，供下次用
+        idx -= 10
+
+    # 2. 反转顺序，保证时间顺序
+    saved_frames = saved_frames[::-1]
+    centers = centers[::-1]
+    lengths = lengths[::-1]
+    mark_indices = mark_indices[::-1]
+
+    # 3. 对每一帧进行平滑插值，生成所有帧的中心点和长度
+    # 使用一维插值并高斯滤波平滑
+    from scipy.ndimage import gaussian_filter1d
+    from scipy.interpolate import CubicSpline
+
+    all_indices = []
+    for i in range(len(saved_frames) - 1):
+        idx0, _, _, _ = saved_frames[i]
+        idx1, _, _, _ = saved_frames[i + 1]
+        all_indices.extend(list(range(idx0, idx1, 1)))
+    all_indices.append(saved_frames[-1][0])
+
+    interp_x = np.array(mark_indices)
+    interp_frames = np.array(all_indices)
+    centers_np = np.array(centers)
+    lengths_np = np.array(lengths)
+
+    # 使用三次样条插值
+    cs_x = CubicSpline(interp_x, centers_np[:, 0])
+    cs_y = CubicSpline(interp_x, centers_np[:, 1])
+    cs_l = CubicSpline(interp_x, lengths_np)
+
+    cx_interp = cs_x(interp_frames)
+    cy_interp = cs_y(interp_frames)
+    l_interp = cs_l(interp_frames)
+
+    # 增大sigma进一步平滑（可尝试更大值，如12或15）
+    sigma = 15
+    cx_interp_smooth = gaussian_filter1d(cx_interp, sigma=sigma)
+    cy_interp_smooth = gaussian_filter1d(cy_interp, sigma=sigma)
+    l_interp_smooth = gaussian_filter1d(l_interp, sigma=sigma)
+
+    interp_centers = list(zip(cx_interp_smooth.astype(int), cy_interp_smooth.astype(int)))
+    interp_lengths = list(l_interp_smooth)
+
+    # 4. 重新插入物体，匀速且平滑运动
+    for idx, (frame_idx, frame_name) in enumerate(zip(all_indices, [frames[i] for i in all_indices])):
+        frame_path = os.path.join(frames_dir, frame_name)
+        save_path = os.path.join(output_dir, frame_name)
+        mask_save_path = os.path.splitext(save_path)[0] + "_mask.jpg"
+        cx, cy = interp_centers[idx]
+        length = interp_lengths[idx]
+        insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords=None, mask_save_path=mask_save_path, center=(cx, cy))
         print(f"已保存: {save_path} 及 {mask_save_path}")
-        saved_frames.append(frames[idx])
-        idx -= 5
 
     # 标注结束后生成视频（只用本次合成的图片，按标注顺序）
-    if saved_frames:
-        video_frames = [os.path.join(output_dir, fname) for fname in saved_frames]
-        # 反转顺序保证视频播放顺序与标注顺序一致
-        video_frames = video_frames[::-1]
-        # 临时保存排序后的图片
-        temp_dir = os.path.join(output_dir, "_video_temp")
-        os.makedirs(temp_dir, exist_ok=True)
-        for i, img_path in enumerate(video_frames):
-            img = cv2.imread(img_path)
-            cv2.imwrite(os.path.join(temp_dir, f"{i:04d}.jpg"), img)
-        save_video_from_images(temp_dir, os.path.join(output_dir, "result.mp4"), fps=5)
-        # 清理临时图片
-        for f in os.listdir(temp_dir):
-            os.remove(os.path.join(temp_dir, f))
-        os.rmdir(temp_dir)
+    video_frames = [os.path.join(output_dir, frames[i]) for i in all_indices]
+    temp_dir = os.path.join(output_dir, "_video_temp")
+    os.makedirs(temp_dir, exist_ok=True)
+    for i, img_path in enumerate(video_frames):
+        img = cv2.imread(img_path)
+        cv2.imwrite(os.path.join(temp_dir, f"{i:04d}.jpg"), img)
+    save_video_from_images(temp_dir, os.path.join(output_dir, "result.mp4"), fps=20)
+    for f in os.listdir(temp_dir):
+        os.remove(os.path.join(temp_dir, f))
+    os.rmdir(temp_dir)
 
 if __name__ == "__main__":
     main()

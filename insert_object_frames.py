@@ -329,6 +329,7 @@ def main():
     lengths = []
     mark_indices = []
     last_line = None
+    mark_step = 20  # 每隔多少帧标一次
     while idx >= 0:
         frame_path = os.path.join(frames_dir, frames[idx])
         print(f"处理帧: {frames[idx]}")
@@ -338,7 +339,7 @@ def main():
             break
         if length is None:
             print("窗口关闭，继续下一张图片")
-            idx -= 10
+            idx -= mark_step
             continue
         save_path = os.path.join(output_dir, frames[idx])
         mask_save_path = os.path.splitext(save_path)[0] + "_mask.jpg"
@@ -353,7 +354,7 @@ def main():
         saved_frames.append((idx, frames[idx], line_coords, length))
         mark_indices.append(idx)
         last_line = line_coords
-        idx -= 10
+        idx -= mark_step
     # 2. 反转顺序，保证时间顺序
     saved_frames = saved_frames[::-1]
     centers = centers[::-1]

@@ -30,7 +30,7 @@ def get_frame_indices(start_idx, step, count):
 
 def draw_reference_line(image_path, last_line=None):
     root = tk.Tk()
-    root.title("请画一条参考线（左键画线，右键重画，回车确认）")
+    root.title("请画一条参考线（左键画线，右键重画，回车下一张，ESC结束）")
     img = Image.open(image_path)
     tk_img = ImageTk.PhotoImage(img)
     canvas = tk.Canvas(root, width=img.width, height=img.height)
@@ -44,34 +44,40 @@ def draw_reference_line(image_path, last_line=None):
         canvas.create_line(x0, y0, x1, y1, fill='green', width=2, dash=(4, 2))
 
     def on_click(event):
-        # 左键：画线
         if event.num == 1:
             if len(line) < 2:
                 line.append((event.x, event.y))
                 if len(line) == 2:
                     canvas.create_line(line[0][0], line[0][1], line[1][0], line[1][1], fill='red', width=2)
-        # 右键：重画
         elif event.num == 3:
             line.clear()
             canvas.delete("all")
             canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
-            # 重新画上一次的线（绿色）
             if last_line is not None:
                 x0, y0, x1, y1 = last_line
                 canvas.create_line(x0, y0, x1, y1, fill='green', width=2, dash=(4, 2))
 
-    def on_return(event):
+    def on_return(event=None):
         root.quit()
 
+    def on_esc(event=None):
+        root.esc_pressed = True
+        root.quit()
+
+    root.esc_pressed = False
     canvas.bind("<Button-1>", on_click)
     canvas.bind("<Button-3>", on_click)
     root.bind("<Return>", on_return)
+    root.bind("<Escape>", on_esc)
+    root.protocol("WM_DELETE_WINDOW", on_return)  # 关闭窗口等价于回车
+
     root.mainloop()
     try:
         root.destroy()
     except tk.TclError:
         pass
-    # 如果没画线，直接用上一次的线
+    if getattr(root, "esc_pressed", False):
+        return "ESC", None
     if len(line) == 2:
         x0, y0 = line[0]
         x1, y1 = line[1]
@@ -327,12 +333,15 @@ def main():
         frame_path = os.path.join(frames_dir, frames[idx])
         print(f"处理帧: {frames[idx]}")
         length, line_coords = draw_reference_line(frame_path, last_line=last_line)
-        if length is None:
-            print("窗口关闭，停止标注")
+        if length == "ESC":
+            print("按ESC，停止标注并开始合成视频")
             break
+        if length is None:
+            print("窗口关闭，继续下一张图片")
+            idx -= 10
+            continue
         save_path = os.path.join(output_dir, frames[idx])
         mask_save_path = os.path.splitext(save_path)[0] + "_mask.jpg"
-        # 计算中心点
         if line_coords:
             x0, y0, x1, y1 = line_coords
             cx = int((x0 + x1) / 2)
@@ -343,9 +352,8 @@ def main():
         lengths.append(length)
         saved_frames.append((idx, frames[idx], line_coords, length))
         mark_indices.append(idx)
-        last_line = line_coords  # 记录本次线，供下次用
+        last_line = line_coords
         idx -= 10
-
     # 2. 反转顺序，保证时间顺序
     saved_frames = saved_frames[::-1]
     centers = centers[::-1]

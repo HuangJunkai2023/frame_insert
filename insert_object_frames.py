@@ -10,8 +10,8 @@ from torchvision.models import vgg19
 import subprocess
 
 # ====== 在此处直接设置参数 ======
-frames_dir = r"D:\_mmlab_swjtu\data\night\bergen_night\bergen01_night"
-insert_img_path = r"D:\_mmlab_swjtu\data\object\stone1.png"
+frames_dir = "/media/huang/NVMe/_mmlab_swjtu/data/night/bergen_night/bergen01_night"
+insert_img_path = "/media/huang/NVMe/_mmlab_swjtu/data/object/stone1.png"
 start_seq = 1200  # 起始序号，如0000则填0
 # 自动生成输出目录
 parent_dir = os.path.dirname(frames_dir)
@@ -121,7 +121,12 @@ def insert_object_to_frame(frame_path, insert_img_path, object_width, save_path,
     insert_obj = Image.open(insert_img_path).convert("RGBA")
     w_percent = object_width / insert_obj.width
     new_height = int(insert_obj.height * w_percent)
-    insert_obj = insert_obj.resize((int(object_width), new_height), Image.Resampling.LANCZOS)
+    # 兼容不同Pillow版本的LANCZOS写法
+    try:
+        resample_lanczos = Image.LANCZOS
+    except AttributeError:
+        resample_lanczos = Image.ANTIALIAS
+    insert_obj = insert_obj.resize((int(object_width), new_height), resample_lanczos)
     # 让物体方向与参考线一致
     if line_coords:
         x0, y0, x1, y1 = line_coords
@@ -293,7 +298,7 @@ def main():
     # 允许用户通过方向键选择末尾帧
     end_idx = select_start_frame(frames, end_idx)
 
-    # 从末尾帧向前，每隔30帧，直到用户关闭窗口
+    # 从末尾帧向前，每隔5帧，直到用户关闭窗口
     idx = end_idx
     saved_frames = []
     while idx >= 0:
@@ -308,7 +313,7 @@ def main():
         insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords, mask_save_path)
         print(f"已保存: {save_path} 及 {mask_save_path}")
         saved_frames.append(frames[idx])
-        idx -= 30
+        idx -= 5
 
     # 标注结束后生成视频（只用本次合成的图片，按标注顺序）
     if saved_frames:

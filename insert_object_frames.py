@@ -29,7 +29,7 @@ def get_frame_indices(start_idx, step, count):
 
 def draw_reference_line(image_path):
     root = tk.Tk()
-    root.title("请画一条参考线（左键画线，右键重画，回车确认）")
+    root.title("请画一条参考线（左键画线，右键重画，回车确认，自动水平）")
     img = Image.open(image_path)
     tk_img = ImageTk.PhotoImage(img)
     canvas = tk.Canvas(root, width=img.width, height=img.height)
@@ -43,7 +43,12 @@ def draw_reference_line(image_path):
             if len(line) < 2:
                 line.append((event.x, event.y))
                 if len(line) == 2:
-                    canvas.create_line(line[0][0], line[0][1], line[1][0], line[1][1], fill='red', width=2)
+                    # 保持水平：第二点y坐标强制等于第一点y
+                    x0, y0 = line[0]
+                    x1, _ = line[1]
+                    y1 = y0
+                    line[1] = (x1, y1)
+                    canvas.create_line(x0, y0, x1, y1, fill='red', width=2)
         # 右键：重画
         elif event.num == 3:
             line.clear()
@@ -57,7 +62,6 @@ def draw_reference_line(image_path):
     canvas.bind("<Button-3>", on_click)
     root.bind("<Return>", on_return)
     root.mainloop()
-    # 修复TclError：用try/except包裹destroy，避免已销毁时报错
     try:
         root.destroy()
     except tk.TclError:
@@ -65,7 +69,9 @@ def draw_reference_line(image_path):
     if len(line) == 2:
         x0, y0 = line[0]
         x1, y1 = line[1]
-        length = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        # 保证返回的线是水平的
+        y1 = y0
+        length = abs(x1 - x0)
         return length, (x0, y0, x1, y1)
     else:
         return None, None
@@ -212,6 +218,11 @@ def insert_object_to_frame(frame_path, insert_img_path, object_width, save_path,
 
     # === 生成掩码图 ===
     if mask_save_path:
+        # 新增：将掩码图像存储到单独的文件夹
+        mask_dir = os.path.join(os.path.dirname(mask_save_path), "masks")
+        os.makedirs(mask_dir, exist_ok=True)
+        mask_filename = os.path.basename(mask_save_path)
+        mask_save_path = os.path.join(mask_dir, mask_filename)
         mask_img = Image.new("L", frame.size, 0)
         obj_mask = insert_obj.split()[-1].point(lambda p: 255 if p > 10 else 0)
         mask_img.paste(obj_mask, (cx, cy), obj_mask)
@@ -298,9 +309,10 @@ def main():
     # 允许用户通过方向键选择末尾帧
     end_idx = select_start_frame(frames, end_idx)
 
-    # 从末尾帧向前，每隔5帧，直到用户关闭窗口
+    # 每隔16帧标注一次，两帧编号差为17，如 0, 17, 34, ...
     idx = end_idx
     saved_frames = []
+    mark_step = 17
     while idx >= 0:
         frame_path = os.path.join(frames_dir, frames[idx])
         print(f"处理帧: {frames[idx]}")
@@ -313,7 +325,7 @@ def main():
         insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords, mask_save_path)
         print(f"已保存: {save_path} 及 {mask_save_path}")
         saved_frames.append(frames[idx])
-        idx -= 5
+        idx -= mark_step
 
     # 标注结束后生成视频（只用本次合成的图片，按标注顺序）
     if saved_frames:

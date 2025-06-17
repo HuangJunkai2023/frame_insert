@@ -390,8 +390,9 @@ def main():
     mark_indices = mark_indices[::-1]
 
     # 3. 对每一帧进行平滑插值，生成所有帧的中心点和长度
-    # 使用三次样条插值+更强的高斯滤波+多重移动平均极致平滑
+    # 使用三次样条插值+极致平滑（更大窗口+多次滤波+Savitzky-Golay滤波）
     from scipy.ndimage import gaussian_filter1d, uniform_filter1d
+    from scipy.signal import savgol_filter
     from scipy.interpolate import CubicSpline
 
     all_indices = []
@@ -415,18 +416,22 @@ def main():
     cy_interp = cs_y(interp_frames)
     l_interp = cs_l(interp_frames)
 
-    # 极致平滑：多次高斯+多次移动平均
-    sigma1 = 30
-    sigma2 = 20
-    win1 = 51
-    win2 = 31
+    # 极致平滑：多次高斯+多次移动平均+Savitzky-Golay滤波
+    sigma1 = 40
+    sigma2 = 25
+    win1 = 81
+    win2 = 51
+    sg_win = 51 if len(cx_interp) > 51 else (len(cx_interp)//2)*2+1  # 奇数且不超过数据长度
+    sg_poly = 3
 
     def super_smooth(arr):
         arr = gaussian_filter1d(arr, sigma=sigma1, mode='nearest')
         arr = uniform_filter1d(arr, size=win1, mode='nearest')
         arr = gaussian_filter1d(arr, sigma=sigma2, mode='nearest')
         arr = uniform_filter1d(arr, size=win2, mode='nearest')
-        arr = gaussian_filter1d(arr, sigma=8, mode='nearest')
+        arr = gaussian_filter1d(arr, sigma=10, mode='nearest')
+        if len(arr) > sg_win:
+            arr = savgol_filter(arr, sg_win, sg_poly, mode='nearest')
         return arr
 
     cx_smooth = super_smooth(cx_interp)

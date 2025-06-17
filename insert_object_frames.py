@@ -28,15 +28,18 @@ def get_sorted_frames(folder):
 def get_frame_indices(start_idx, step, count):
     return [start_idx + i * step for i in range(count)]
 
-def draw_reference_line(image_path, last_line=None):
+def draw_reference_line(image_path, last_line=None, last_length=None):
     root = tk.Tk()
-    root.title("请画一条参考线（左键画线，右键重画，回车下一张，ESC结束）")
+    root.title("请画一条参考线（左键画线，右键重画，回车确认，自动水平，必须比上一次短）")
     img = Image.open(image_path)
     tk_img = ImageTk.PhotoImage(img)
     canvas = tk.Canvas(root, width=img.width, height=img.height)
     canvas.pack()
     canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
     line = []
+    warning_text = tk.StringVar()
+    warning_label = tk.Label(root, textvariable=warning_text, fg="red")
+    warning_label.pack()
 
     # 如果有上一次的线，先画出来（绿色）
     if last_line is not None:
@@ -48,9 +51,26 @@ def draw_reference_line(image_path, last_line=None):
             if len(line) < 2:
                 line.append((event.x, event.y))
                 if len(line) == 2:
-                    canvas.create_line(line[0][0], line[0][1], line[1][0], line[1][1], fill='red', width=2)
+                    # 保持水平：第二点y坐标强制等于第一点y
+                    x0, y0 = line[0]
+                    x1, _ = line[1]
+                    y1 = y0
+                    line[1] = (x1, y1)
+                    length = abs(x1 - x0)
+                    # 检查长度
+                    if last_length is not None and length >= last_length:
+                        warning_text.set("必须比上一次短，请重画！")
+                        line.clear()
+                        canvas.delete("all")
+                        canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
+                        if last_line is not None:
+                            canvas.create_line(last_line[0], last_line[1], last_line[2], last_line[3], fill='green', width=2, dash=(4, 2))
+                    else:
+                        warning_text.set("")
+                        canvas.create_line(x0, y0, x1, y1, fill='red', width=2)
         elif event.num == 3:
             line.clear()
+            warning_text.set("")
             canvas.delete("all")
             canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
             if last_line is not None:
@@ -69,7 +89,7 @@ def draw_reference_line(image_path, last_line=None):
     canvas.bind("<Button-3>", on_click)
     root.bind("<Return>", on_return)
     root.bind("<Escape>", on_esc)
-    root.protocol("WM_DELETE_WINDOW", on_return)  # 关闭窗口等价于回车
+    root.protocol("WM_DELETE_WINDOW", on_return)
 
     root.mainloop()
     try:
@@ -81,11 +101,12 @@ def draw_reference_line(image_path, last_line=None):
     if len(line) == 2:
         x0, y0 = line[0]
         x1, y1 = line[1]
-        length = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        y1 = y0
+        length = abs(x1 - x0)
         return length, (x0, y0, x1, y1)
     elif last_line is not None:
         x0, y0, x1, y1 = last_line
-        length = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        length = abs(x1 - x0)
         return length, (x0, y0, x1, y1)
     else:
         return None, None
@@ -236,6 +257,11 @@ def insert_object_to_frame(frame_path, insert_img_path, object_width, save_path,
 
     # === 生成掩码图 ===
     if mask_save_path:
+        # 将mask保存到output_dir/masks/下，文件名与原图一致
+        mask_dir = os.path.join(os.path.dirname(save_path), "masks")
+        os.makedirs(mask_dir, exist_ok=True)
+        mask_filename = os.path.basename(mask_save_path)
+        mask_save_path = os.path.join(mask_dir, mask_filename)
         mask_img = Image.new("L", frame.size, 0)
         obj_mask = insert_obj.split()[-1].point(lambda p: 255 if p > 10 else 0)
         mask_img.paste(obj_mask, (cx, cy), obj_mask)
@@ -329,11 +355,12 @@ def main():
     lengths = []
     mark_indices = []
     last_line = None
-    mark_step = 20  # 每隔多少帧标一次
+    last_length = None
+    mark_step = 20  # 当前是每隔20帧标注一次（即两帧编号差为20）
     while idx >= 0:
         frame_path = os.path.join(frames_dir, frames[idx])
         print(f"处理帧: {frames[idx]}")
-        length, line_coords = draw_reference_line(frame_path, last_line=last_line)
+        length, line_coords = draw_reference_line(frame_path, last_line=last_line, last_length=last_length)
         if length == "ESC":
             print("按ESC，停止标注并开始合成视频")
             break
@@ -354,6 +381,7 @@ def main():
         saved_frames.append((idx, frames[idx], line_coords, length))
         mark_indices.append(idx)
         last_line = line_coords
+        last_length = length
         idx -= mark_step
     # 2. 反转顺序，保证时间顺序
     saved_frames = saved_frames[::-1]

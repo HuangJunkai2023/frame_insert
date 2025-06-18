@@ -13,7 +13,7 @@ import scipy.interpolate
 # ====== 在此处直接设置参数 ======
 frames_dir = "/media/huang/NVMe/_mmlab_swjtu/data/night/bergen_night/bergen01_night"
 insert_img_path = "/media/huang/NVMe/_mmlab_swjtu/data/object/stone1.png"
-start_seq = 1200  # 起始序号，如0000则填0
+start_seq = 1500  # 起始序号，如0000则填0
 # 自动生成输出目录
 parent_dir = os.path.dirname(frames_dir)
 folder_name = os.path.basename(frames_dir)
@@ -332,6 +332,26 @@ def save_video_from_images(image_dir, output_video_path, fps=5):
     video_writer.release()
     print(f"视频已保存到: {output_video_path}")
 
+def save_mask_video_from_images(mask_dir, output_video_path, fps=5):
+    # 获取所有掩码图片并排序
+    images = [f for f in os.listdir(mask_dir) if f.endswith('_mask.jpg')]
+    images.sort()
+    if not images:
+        print(f"没有找到掩码图片，无法生成掩码视频（{mask_dir}）")
+        return
+    # 读取第一张图片确定尺寸
+    first_img = cv2.imread(os.path.join(mask_dir, images[0]), cv2.IMREAD_GRAYSCALE)
+    height, width = first_img.shape[:2]
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height), isColor=False)
+    for img_name in images:
+        img_path = os.path.join(mask_dir, img_name)
+        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+        if img is not None:
+            video_writer.write(img)
+    video_writer.release()
+    print(f"掩码视频已保存到: {output_video_path}")
+
 def main():
     os.makedirs(output_dir, exist_ok=True)
     frames = get_sorted_frames(frames_dir)
@@ -391,6 +411,7 @@ def main():
 
     # 3. 对每一帧进行平滑插值，生成所有帧的中心点和长度（拟合补帧，关键帧不变）
     from scipy.interpolate import interp1d
+    from scipy.signal import savgol_filter
 
     # 只用你标注的帧编号和对应的中心点/长度做线性插值，保证关键帧严格通过
     all_indices = []
@@ -398,7 +419,6 @@ def main():
         idx0, _, _, _ = saved_frames[i]
         idx1, _, _, _ = saved_frames[i + 1]
         all_indices.extend(list(range(idx0, idx1 + 1)))  # 包含右端点
-    # 去重并排序，防止重复
     all_indices = sorted(set(all_indices))
 
     interp_x = np.array(mark_indices)
@@ -406,35 +426,77 @@ def main():
     centers_np = np.array(centers)
     lengths_np = np.array(lengths)
 
-    # 线性插值，保证关键帧严格通过
-    interp_func_x = interp1d(interp_x, centers_np[:, 0], kind='linear')
-    interp_func_y = interp1d(interp_x, centers_np[:, 1], kind='linear')
-    interp_func_l = interp1d(interp_x, lengths_np, kind='linear')
+    # 匀速运动插值：以累计距离为参数做线性插值，保证物体匀速
+    key_points = np.stack(centers)
+    dists = np.sqrt(np.sum(np.diff(key_points, axis=0)**2, axis=1))
+    cum_dist = np.concatenate([[0], np.cumsum(dists)])
+    total_dist = cum_dist[-1]
 
-    cx_interp = interp_func_x(interp_frames)
-    cy_interp = interp_func_y(interp_frames)
-    l_interp = interp_func_l(interp_frames)
+    # 修正：严格按照帧索引均匀采样（即每一帧对应一个均匀的t参数），保证速度均匀
+    num_frames = len(all_indices)
+    t_uniform = np.linspace(0, 1, num_frames)
+    t_key = (np.array(mark_indices) - all_indices[0]) / (all_indices[-1] - all_indices[0])
 
-    interp_centers = list(zip(cx_interp.astype(int), cy_interp.astype(int)))
-    interp_lengths = list(l_interp)
+    interp_func_x = interp1d(t_key, key_points[:, 0], kind='linear')
+    interp_func_y = interp1d(t_key, key_points[:, 1], kind='linear')
+    interp_func_l = interp1d(t_key, lengths_np, kind='linear')
 
-    # 4. 重新插入物体，关键帧用标注，补帧用插值
+    cx_interp = interp_func_x(t_uniform)
+    cy_interp = interp_func_y(t_uniform)
+    l_interp = interp_func_l(t_uniform)
+
+    # --- 抖动平滑处理 ---
+    def sg_smooth(arr, key_idx, window=17, poly=3):
+        arr = np.asarray(arr)
+        n = len(arr)
+        # 关键帧索引
+        key_idx = np.array(key_idx)
+        # 生成mask，关键帧不动
+        mask = np.zeros(n, dtype=bool)
+        # 找到关键帧在all_indices中的位置
+        for i, idx in enumerate(np.linspace(all_indices[0], all_indices[-1], num_frames, dtype=int)):
+            if idx in key_idx:
+                mask[i] = True
+        arr_smooth = arr.copy()
+        if n > window:
+            from scipy.signal import savgol_filter
+            arr_sg = savgol_filter(arr, window_length=window, polyorder=poly, mode='interp')
+            for i in range(n):
+                if not mask[i]:
+                    arr_smooth[i] = arr_sg[i]
+        return arr_smooth
+
+    cx_smooth = sg_smooth(cx_interp, mark_indices, window=17, poly=3)
+    cy_smooth = sg_smooth(cy_interp, mark_indices, window=17, poly=3)
+    l_smooth = sg_smooth(l_interp, mark_indices, window=17, poly=3)
+
+    interp_centers = list(zip(cx_smooth.astype(int), cy_smooth.astype(int)))
+    interp_lengths = list(l_smooth)
+
+    # 4. 重新插入物体，所有帧都用拟合/插值结果（保证关键帧拟合点与人工标注重合，不直接用line_coords）
     mark_idx_set = set(mark_indices)
+    import shutil
+    manual_dir = os.path.join(output_dir, "manual_keyframes")
+    os.makedirs(manual_dir, exist_ok=True)
     for idx, frame_idx in enumerate(all_indices):
         frame_name = frames[frame_idx]
         frame_path = os.path.join(frames_dir, frame_name)
         save_path = os.path.join(output_dir, frame_name)
         mask_save_path = os.path.splitext(save_path)[0] + "_mask.jpg"
-        # 如果是关键帧，使用标注的line_coords，否则用拟合
+        cx, cy = interp_centers[idx]
+        length = interp_lengths[idx]
+        insert_object_to_frame(
+            frame_path,
+            insert_img_path,
+            length,
+            save_path,
+            line_coords=None,
+            mask_save_path=mask_save_path,
+            center=(cx, cy)
+        )
+        # 复制关键帧到manual_keyframes
         if frame_idx in mark_idx_set:
-            k = mark_indices.index(frame_idx)
-            line_coords = saved_frames[k][2]
-            length = saved_frames[k][3]
-            insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords=line_coords, mask_save_path=mask_save_path)
-        else:
-            cx, cy = interp_centers[idx]
-            length = interp_lengths[idx]
-            insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords=None, mask_save_path=mask_save_path, center=(cx, cy))
+            shutil.copy(save_path, os.path.join(manual_dir, frame_name))
         print(f"已保存: {save_path} 及 {mask_save_path}")
 
     # 标注结束后生成视频（只用本次合成的图片，按标注顺序）
@@ -445,6 +507,11 @@ def main():
         img = cv2.imread(img_path)
         cv2.imwrite(os.path.join(temp_dir, f"{i:04d}.jpg"), img)
     save_video_from_images(temp_dir, os.path.join(output_dir, "result.mp4"), fps=30)
+    # 新增：在masks文件夹里生成掩码视频
+    mask_dir = os.path.join(output_dir, "masks")
+    mask_video_path = os.path.join(mask_dir, "mask_result.mp4")
+    save_mask_video_from_images(mask_dir, mask_video_path, fps=30)
+    # 清理临时图片
     for f in os.listdir(temp_dir):
         os.remove(os.path.join(temp_dir, f))
     os.rmdir(temp_dir)

@@ -389,66 +389,52 @@ def main():
     lengths = lengths[::-1]
     mark_indices = mark_indices[::-1]
 
-    # 3. 对每一帧进行平滑插值，生成所有帧的中心点和长度
-    # 使用三次样条插值+极致平滑（更大窗口+多次滤波+Savitzky-Golay滤波）
-    from scipy.ndimage import gaussian_filter1d, uniform_filter1d
-    from scipy.signal import savgol_filter
-    from scipy.interpolate import CubicSpline
+    # 3. 对每一帧进行平滑插值，生成所有帧的中心点和长度（拟合补帧，关键帧不变）
+    from scipy.interpolate import interp1d
 
+    # 只用你标注的帧编号和对应的中心点/长度做线性插值，保证关键帧严格通过
     all_indices = []
     for i in range(len(saved_frames) - 1):
         idx0, _, _, _ = saved_frames[i]
         idx1, _, _, _ = saved_frames[i + 1]
-        all_indices.extend(list(range(idx0, idx1, 1)))
-    all_indices.append(saved_frames[-1][0])
+        all_indices.extend(list(range(idx0, idx1 + 1)))  # 包含右端点
+    # 去重并排序，防止重复
+    all_indices = sorted(set(all_indices))
 
     interp_x = np.array(mark_indices)
     interp_frames = np.array(all_indices)
     centers_np = np.array(centers)
     lengths_np = np.array(lengths)
 
-    # 使用三次样条插值
-    cs_x = CubicSpline(interp_x, centers_np[:, 0])
-    cs_y = CubicSpline(interp_x, centers_np[:, 1])
-    cs_l = CubicSpline(interp_x, lengths_np)
+    # 线性插值，保证关键帧严格通过
+    interp_func_x = interp1d(interp_x, centers_np[:, 0], kind='linear')
+    interp_func_y = interp1d(interp_x, centers_np[:, 1], kind='linear')
+    interp_func_l = interp1d(interp_x, lengths_np, kind='linear')
 
-    cx_interp = cs_x(interp_frames)
-    cy_interp = cs_y(interp_frames)
-    l_interp = cs_l(interp_frames)
+    cx_interp = interp_func_x(interp_frames)
+    cy_interp = interp_func_y(interp_frames)
+    l_interp = interp_func_l(interp_frames)
 
-    # 极致平滑：多次高斯+多次移动平均+Savitzky-Golay滤波
-    sigma1 = 40
-    sigma2 = 25
-    win1 = 81
-    win2 = 51
-    sg_win = 51 if len(cx_interp) > 51 else (len(cx_interp)//2)*2+1  # 奇数且不超过数据长度
-    sg_poly = 3
+    interp_centers = list(zip(cx_interp.astype(int), cy_interp.astype(int)))
+    interp_lengths = list(l_interp)
 
-    def super_smooth(arr):
-        arr = gaussian_filter1d(arr, sigma=sigma1, mode='nearest')
-        arr = uniform_filter1d(arr, size=win1, mode='nearest')
-        arr = gaussian_filter1d(arr, sigma=sigma2, mode='nearest')
-        arr = uniform_filter1d(arr, size=win2, mode='nearest')
-        arr = gaussian_filter1d(arr, sigma=10, mode='nearest')
-        if len(arr) > sg_win:
-            arr = savgol_filter(arr, sg_win, sg_poly, mode='nearest')
-        return arr
-
-    cx_smooth = super_smooth(cx_interp)
-    cy_smooth = super_smooth(cy_interp)
-    l_smooth = super_smooth(l_interp)
-
-    interp_centers = list(zip(cx_smooth.astype(int), cy_smooth.astype(int)))
-    interp_lengths = list(l_smooth)
-
-    # 4. 重新插入物体，匀速且平滑运动
-    for idx, (frame_idx, frame_name) in enumerate(zip(all_indices, [frames[i] for i in all_indices])):
+    # 4. 重新插入物体，关键帧用标注，补帧用插值
+    mark_idx_set = set(mark_indices)
+    for idx, frame_idx in enumerate(all_indices):
+        frame_name = frames[frame_idx]
         frame_path = os.path.join(frames_dir, frame_name)
         save_path = os.path.join(output_dir, frame_name)
         mask_save_path = os.path.splitext(save_path)[0] + "_mask.jpg"
-        cx, cy = interp_centers[idx]
-        length = interp_lengths[idx]
-        insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords=None, mask_save_path=mask_save_path, center=(cx, cy))
+        # 如果是关键帧，使用标注的line_coords，否则用拟合
+        if frame_idx in mark_idx_set:
+            k = mark_indices.index(frame_idx)
+            line_coords = saved_frames[k][2]
+            length = saved_frames[k][3]
+            insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords=line_coords, mask_save_path=mask_save_path)
+        else:
+            cx, cy = interp_centers[idx]
+            length = interp_lengths[idx]
+            insert_object_to_frame(frame_path, insert_img_path, length, save_path, line_coords=None, mask_save_path=mask_save_path, center=(cx, cy))
         print(f"已保存: {save_path} 及 {mask_save_path}")
 
     # 标注结束后生成视频（只用本次合成的图片，按标注顺序）

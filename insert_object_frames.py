@@ -1,4 +1,5 @@
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import sys
 from PIL import Image, ImageTk
 import tkinter as tk
@@ -11,8 +12,8 @@ import subprocess
 import scipy.interpolate
 
 # ====== 在此处直接设置参数 ======
-frames_dir = "/media/huang/NVMe/_mmlab_swjtu/data/night/bergen_night/bergen01_night"
-insert_img_path = "/media/huang/NVMe/_mmlab_swjtu/data/object/stone1.png"
+frames_dir = "D:/_mmlab_swjtu/data/night/bergen_night/bergen01_night"#目标帧的绝对路径
+insert_img_path = "D:/_mmlab_swjtu/data/object/stone1.png"#异常物体的绝对路径
 start_seq = 1500  # 起始序号，如0000则填0
 # 自动生成输出目录
 parent_dir = os.path.dirname(frames_dir)

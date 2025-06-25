@@ -8,8 +8,6 @@ import numpy as np
 import torch
 import torchvision.transforms as T
 from torchvision.models import vgg19
-import subprocess
-import scipy.interpolate
 
 # ====== 在此处直接设置参数 ======
 frames_dir = "D:/_mmlab_swjtu/data/night/bergen_night/bergen01_night"#目标帧的绝对路径

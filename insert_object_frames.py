@@ -546,6 +546,20 @@ def main():
     if os.path.exists(mask_dir_old):
         shutil.move(mask_dir_old, mask_dir_new)
     print(f"掩码文件夹已移动并重命名为: {mask_dir_new}")
+    # 填充未修改帧的黑mask
+    mask_files = set(os.listdir(mask_dir_new))
+    for f in os.listdir(frames_dir):
+        if f.endswith('.jpg'):
+            mask_name = os.path.splitext(f)[0] + "_mask.jpg"
+            mask_path = os.path.join(mask_dir_new, mask_name)
+            if mask_name not in mask_files:
+                # 生成全黑mask，分辨率与原图一致
+                img = cv2.imread(os.path.join(frames_dir, f))
+                if img is not None:
+                    h, w = img.shape[:2]
+                    black = np.zeros((h, w), dtype=np.uint8)
+                    cv2.imwrite(mask_path, black)
+    print(f"未修改帧已补全黑色掩码")
     # 移动掩码视频到insert
     mask_video_path = os.path.join(mask_dir_new, "mask_result.mp4")
     if os.path.exists(mask_video_path):

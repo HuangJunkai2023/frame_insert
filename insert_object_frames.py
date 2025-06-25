@@ -516,10 +516,24 @@ def main():
     for i, img_path in enumerate(video_frames):
         img = cv2.imread(img_path)
         cv2.imwrite(os.path.join(temp_dir, f"{i:04d}.jpg"), img)
-    save_video_from_images(temp_dir, os.path.join(output_dir, "result.mp4"), fps=30)
+
+    # === 自动生成不重复的视频文件名 ===
+    def get_unique_path(base_path):
+        if not os.path.exists(base_path):
+            return base_path
+        base, ext = os.path.splitext(base_path)
+        idx = 1
+        while True:
+            new_path = f"{base}_{idx}{ext}"
+            if not os.path.exists(new_path):
+                return new_path
+            idx += 1
+
+    result_video_path = get_unique_path(os.path.join(output_dir, "result.mp4"))
+    save_video_from_images(temp_dir, result_video_path, fps=30)
     # 新增：在masks文件夹里生成掩码视频
     mask_dir = os.path.join(output_dir, "masks")
-    mask_video_path = os.path.join(mask_dir, "mask_result.mp4")
+    mask_video_path = get_unique_path(os.path.join(mask_dir, "mask_result.mp4"))
     save_mask_video_from_images(mask_dir, mask_video_path, fps=30)
     # 清理临时图片
     for f in os.listdir(temp_dir):
@@ -546,6 +560,17 @@ def main():
     mask_dir_old = os.path.join(output_dir, "masks")
     mask_dir_new = os.path.join(parent_dir, folder_name + "_mask")
     mask_dir_existed = os.path.exists(mask_dir_new)
+    # 工具函数：获取不重复的文件名
+    def get_unique_path(base_path):
+        if not os.path.exists(base_path):
+            return base_path
+        base, ext = os.path.splitext(base_path)
+        idx = 1
+        while True:
+            new_path = f"{base}_{idx}{ext}"
+            if not os.path.exists(new_path):
+                return new_path
+            idx += 1
     if mask_dir_existed:
         print(f"掩码文件夹已存在: {mask_dir_new}，将覆盖异常帧掩码")
         # 只覆盖本轮修改帧的掩码
@@ -555,10 +580,11 @@ def main():
             dst_mask = os.path.join(mask_dir_new, mask_name)
             if os.path.exists(src_mask):
                 shutil.copy2(src_mask, dst_mask)
-        # 移动掩码视频到insert
-        mask_video_path = os.path.join(mask_dir_old, "mask_result.mp4")
-        if os.path.exists(mask_video_path):
-            shutil.move(mask_video_path, os.path.join(output_dir, "mask_result.mp4"))
+        # 移动掩码视频到insert，自动加后缀
+        mask_video_path_old = os.path.join(mask_dir_old, "mask_result.mp4")
+        if os.path.exists(mask_video_path_old):
+            mask_video_path_new = get_unique_path(os.path.join(output_dir, "mask_result.mp4"))
+            shutil.move(mask_video_path_old, mask_video_path_new)
         print(f"本轮异常帧掩码已覆盖，掩码视频已移动到: {output_dir}")
     else:
         if os.path.exists(mask_dir_old):
@@ -577,10 +603,11 @@ def main():
                         black = np.zeros((h, w), dtype=np.uint8)
                         cv2.imwrite(mask_path, black)
         print(f"未修改帧已补全黑色掩码")
-        # 移动掩码视频到insert
-        mask_video_path = os.path.join(mask_dir_new, "mask_result.mp4")
-        if os.path.exists(mask_video_path):
-            shutil.move(mask_video_path, os.path.join(output_dir, "mask_result.mp4"))
+        # 移动掩码视频到insert，自动加后缀
+        mask_video_path_old = os.path.join(mask_dir_new, "mask_result.mp4")
+        if os.path.exists(mask_video_path_old):
+            mask_video_path_new = get_unique_path(os.path.join(output_dir, "mask_result.mp4"))
+            shutil.move(mask_video_path_old, mask_video_path_new)
         print(f"掩码视频已移动到: {output_dir}")
 
 if __name__ == "__main__":

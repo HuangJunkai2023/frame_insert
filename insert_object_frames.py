@@ -527,7 +527,7 @@ def main():
     os.rmdir(temp_dir)
 
     # 只备份被修改的帧
-    backup_dir = os.path.join(parent_dir, folder_name + "_backup")
+    backup_dir = os.path.join(output_dir, "backup")
     os.makedirs(backup_dir, exist_ok=True)
     for f in modified_frames:
         shutil.copy2(os.path.join(frames_dir, f), os.path.join(backup_dir, f))
@@ -538,7 +538,7 @@ def main():
         shutil.copy2(os.path.join(output_dir, f), os.path.join(frames_dir, f))
     print(f"已将处理后的帧替换至原始帧目录: {frames_dir}")
 
-    # mask文件夹上移一级并重命名
+    # mask文件夹上移到和原始帧同级并重命名，mask视频也放到insert
     mask_dir_old = os.path.join(output_dir, "masks")
     mask_dir_new = os.path.join(parent_dir, folder_name + "_mask")
     if os.path.exists(mask_dir_new):
@@ -546,6 +546,11 @@ def main():
     if os.path.exists(mask_dir_old):
         shutil.move(mask_dir_old, mask_dir_new)
     print(f"掩码文件夹已移动并重命名为: {mask_dir_new}")
+    # 移动掩码视频到insert
+    mask_video_path = os.path.join(mask_dir_new, "mask_result.mp4")
+    if os.path.exists(mask_video_path):
+        shutil.move(mask_video_path, os.path.join(output_dir, "mask_result.mp4"))
+    print(f"掩码视频已移动到: {output_dir}")
 
 if __name__ == "__main__":
     main()

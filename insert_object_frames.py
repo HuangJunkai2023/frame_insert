@@ -357,12 +357,12 @@ def main():
     # 只备份被修改的帧
     modified_frames = set()
     # 备份原始帧到 parent_dir/folder_name_backup
-    backup_dir = os.path.join(parent_dir, folder_name + "_backup")
-    os.makedirs(backup_dir, exist_ok=True)
-    for f in os.listdir(frames_dir):
-        if f.endswith('.jpg'):
-            shutil.copy2(os.path.join(frames_dir, f), os.path.join(backup_dir, f))
-    print(f"原始帧已备份到: {backup_dir}")
+    # backup_dir = os.path.join(parent_dir, folder_name + "_backup")
+    # os.makedirs(backup_dir, exist_ok=True)
+    # for f in os.listdir(frames_dir):
+    #     if f.endswith('.jpg'):
+    #         shutil.copy2(os.path.join(frames_dir, f), os.path.join(backup_dir, f))
+    # print(f"原始帧已备份到: {backup_dir}")
 
     frames = get_sorted_frames(frames_dir)
     # 找到末尾帧的索引
@@ -528,10 +528,14 @@ def main():
 
     # 只备份被修改的帧
     backup_dir = os.path.join(output_dir, "backup")
-    os.makedirs(backup_dir, exist_ok=True)
-    for f in modified_frames:
-        shutil.copy2(os.path.join(frames_dir, f), os.path.join(backup_dir, f))
-    print(f"已备份被修改的帧到: {backup_dir}")
+    if not os.path.exists(backup_dir):
+        os.makedirs(backup_dir, exist_ok=True)
+        for f in os.listdir(frames_dir):
+            if f.endswith('.jpg'):
+                shutil.copy2(os.path.join(frames_dir, f), os.path.join(backup_dir, f))
+        print(f"已备份被修改的帧到: {backup_dir}")
+    else:
+        print(f"备份文件夹已存在，跳过整体备份: {backup_dir}")
 
     # 替换原始帧
     for f in modified_frames:
@@ -541,30 +545,43 @@ def main():
     # mask文件夹上移到和原始帧同级并重命名，mask视频也放到insert
     mask_dir_old = os.path.join(output_dir, "masks")
     mask_dir_new = os.path.join(parent_dir, folder_name + "_mask")
-    if os.path.exists(mask_dir_new):
-        shutil.rmtree(mask_dir_new)
-    if os.path.exists(mask_dir_old):
-        shutil.move(mask_dir_old, mask_dir_new)
-    print(f"掩码文件夹已移动并重命名为: {mask_dir_new}")
-    # 填充未修改帧的黑mask
-    mask_files = set(os.listdir(mask_dir_new))
-    for f in os.listdir(frames_dir):
-        if f.endswith('.jpg'):
+    mask_dir_existed = os.path.exists(mask_dir_new)
+    if mask_dir_existed:
+        print(f"掩码文件夹已存在: {mask_dir_new}，将覆盖异常帧掩码")
+        # 只覆盖本轮修改帧的掩码
+        for f in modified_frames:
             mask_name = os.path.splitext(f)[0] + "_mask.jpg"
-            mask_path = os.path.join(mask_dir_new, mask_name)
-            if mask_name not in mask_files:
-                # 生成全黑mask，分辨率与原图一致
-                img = cv2.imread(os.path.join(frames_dir, f))
-                if img is not None:
-                    h, w = img.shape[:2]
-                    black = np.zeros((h, w), dtype=np.uint8)
-                    cv2.imwrite(mask_path, black)
-    print(f"未修改帧已补全黑色掩码")
-    # 移动掩码视频到insert
-    mask_video_path = os.path.join(mask_dir_new, "mask_result.mp4")
-    if os.path.exists(mask_video_path):
-        shutil.move(mask_video_path, os.path.join(output_dir, "mask_result.mp4"))
-    print(f"掩码视频已移动到: {output_dir}")
+            src_mask = os.path.join(mask_dir_old, mask_name)
+            dst_mask = os.path.join(mask_dir_new, mask_name)
+            if os.path.exists(src_mask):
+                shutil.copy2(src_mask, dst_mask)
+        # 移动掩码视频到insert
+        mask_video_path = os.path.join(mask_dir_old, "mask_result.mp4")
+        if os.path.exists(mask_video_path):
+            shutil.move(mask_video_path, os.path.join(output_dir, "mask_result.mp4"))
+        print(f"本轮异常帧掩码已覆盖，掩码视频已移动到: {output_dir}")
+    else:
+        if os.path.exists(mask_dir_old):
+            shutil.move(mask_dir_old, mask_dir_new)
+        print(f"掩码文件夹已移动并重命名为: {mask_dir_new}")
+        # 填充未修改帧的黑mask
+        mask_files = set(os.listdir(mask_dir_new))
+        for f in os.listdir(frames_dir):
+            if f.endswith('.jpg'):
+                mask_name = os.path.splitext(f)[0] + "_mask.jpg"
+                mask_path = os.path.join(mask_dir_new, mask_name)
+                if mask_name not in mask_files:
+                    img = cv2.imread(os.path.join(frames_dir, f))
+                    if img is not None:
+                        h, w = img.shape[:2]
+                        black = np.zeros((h, w), dtype=np.uint8)
+                        cv2.imwrite(mask_path, black)
+        print(f"未修改帧已补全黑色掩码")
+        # 移动掩码视频到insert
+        mask_video_path = os.path.join(mask_dir_new, "mask_result.mp4")
+        if os.path.exists(mask_video_path):
+            shutil.move(mask_video_path, os.path.join(output_dir, "mask_result.mp4"))
+        print(f"掩码视频已移动到: {output_dir}")
 
 if __name__ == "__main__":
     main()

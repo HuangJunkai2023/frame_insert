@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torchvision.transforms as T
 from torchvision.models import vgg19
+import shutil  # 用于文件复制备份和替换
 
 # ====== 在此处直接设置参数 ======
 frames_dir = "D:/_mmlab_swjtu/data/night/bergen_night/bergen01_night"#目标帧的绝对路径
@@ -353,6 +354,16 @@ def save_mask_video_from_images(mask_dir, output_video_path, fps=5):
 
 def main():
     os.makedirs(output_dir, exist_ok=True)
+    # 只备份被修改的帧
+    modified_frames = set()
+    # 备份原始帧到 parent_dir/folder_name_backup
+    backup_dir = os.path.join(parent_dir, folder_name + "_backup")
+    os.makedirs(backup_dir, exist_ok=True)
+    for f in os.listdir(frames_dir):
+        if f.endswith('.jpg'):
+            shutil.copy2(os.path.join(frames_dir, f), os.path.join(backup_dir, f))
+    print(f"原始帧已备份到: {backup_dir}")
+
     frames = get_sorted_frames(frames_dir)
     # 找到末尾帧的索引
     end_idx = None
@@ -474,7 +485,6 @@ def main():
 
     # 4. 重新插入物体，所有帧都用拟合/插值结果（保证关键帧拟合点与人工标注重合，不直接用line_coords）
     mark_idx_set = set(mark_indices)
-    import shutil
     manual_dir = os.path.join(output_dir, "manual_keyframes")
     os.makedirs(manual_dir, exist_ok=True)
     for idx, frame_idx in enumerate(all_indices):
@@ -493,6 +503,7 @@ def main():
             mask_save_path=mask_save_path,
             center=(cx, cy)
         )
+        modified_frames.add(frame_name)
         # 复制关键帧到manual_keyframes
         if frame_idx in mark_idx_set:
             shutil.copy(save_path, os.path.join(manual_dir, frame_name))
@@ -514,6 +525,27 @@ def main():
     for f in os.listdir(temp_dir):
         os.remove(os.path.join(temp_dir, f))
     os.rmdir(temp_dir)
+
+    # 只备份被修改的帧
+    backup_dir = os.path.join(parent_dir, folder_name + "_backup")
+    os.makedirs(backup_dir, exist_ok=True)
+    for f in modified_frames:
+        shutil.copy2(os.path.join(frames_dir, f), os.path.join(backup_dir, f))
+    print(f"已备份被修改的帧到: {backup_dir}")
+
+    # 替换原始帧
+    for f in modified_frames:
+        shutil.copy2(os.path.join(output_dir, f), os.path.join(frames_dir, f))
+    print(f"已将处理后的帧替换至原始帧目录: {frames_dir}")
+
+    # mask文件夹上移一级并重命名
+    mask_dir_old = os.path.join(output_dir, "masks")
+    mask_dir_new = os.path.join(parent_dir, folder_name + "_mask")
+    if os.path.exists(mask_dir_new):
+        shutil.rmtree(mask_dir_new)
+    if os.path.exists(mask_dir_old):
+        shutil.move(mask_dir_old, mask_dir_new)
+    print(f"掩码文件夹已移动并重命名为: {mask_dir_new}")
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,15 @@
+%% 图5 插入与泊松融合示意图
+flowchart TB
+    classDef bw fill:#ffffff,stroke:#000,stroke-width:1px,color:#000;
+    classDef gray fill:#f2f2f2,stroke:#000,color:#000;
+
+    F1[缩放插入对象 按目标宽度缩放 关键帧可旋转]:::bw
+    F2[中心对齐 使用插值中心 cx cy]:::gray
+    F3{ROI边界与尺寸检查}:::bw
+    F4[构造 temp_bg 与 temp_insert 与 二值 mask alpha&gt;10]:::gray
+    F5[泊松融合 seamlessClone NORMAL_CLONE]:::bw
+    F6[异常/尺寸不符 保存原始帧]:::bw
+
+    F1 --> F2 --> F3
+    F3 -- 合法 --> F4 --> F5
+    F3 -- 非法/失败 --> F6

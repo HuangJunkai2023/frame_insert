@@ -1,0 +1,23 @@
+%% 图2 系统结构示意图（依据 insert_object_frames.py）
+flowchart TB
+    classDef bw fill:#ffffff,stroke:#000,stroke-width:1px,color:#000;
+    classDef gray fill:#f2f2f2,stroke:#000,color:#000;
+
+    subgraph 主干模块
+        direction TB
+    M1[输入/浏览模块 帧排序 起始帧选择UI]:::bw
+    M2[关键帧标注模块 水平约束 长度递减 交互提示]:::gray
+    M3[插值与平滑模块 线性插值 savgol_filter 关键帧保持]:::bw
+    M4[插入与融合模块 中心对齐缩放 ROI裁剪 seamlessClone 失败保存原图]:::gray
+    M5[掩码生成模块 alpha阈值10→二值 保存至 masks]:::bw
+    M6[视频编码模块 result.mp4 / mask_result.mp4 30fps]:::gray
+    M7[备份与替换模块 备份原始帧 替换被修改帧 掩码移动/覆盖/补全]:::bw
+        M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M7
+    end
+
+    subgraph 可选模块
+        direction TB
+    S1[风格迁移 VGG19 + AdaIN 代码默认注释]:::gray
+    end
+
+    S1 -.-> M4

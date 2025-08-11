@@ -11,9 +11,10 @@ from torchvision.models import vgg19
 import shutil  # 用于文件复制备份和替换
 
 # ====== 在此处直接设置参数 ======
-frames_dir = "D:/_mmlab_swjtu/data/night/bergen_night/bergen01_night"#目标帧的绝对路径
-insert_img_path = "D:/_mmlab_swjtu/data/object/stone1.png"#异常物体的绝对路径
-start_seq = 1500  # 起始序号，如0000则填0
+frames_dir =      "D:/_mmlab_swjtu/data/fog_16"            #目标帧的绝对路径
+insert_img_path = "D:/_mmlab_swjtu/data/object/stone_006.png"  #异常物体的绝对路径
+start_seq = 1500
+  # 起始序号，如0000则填0
 # 自动生成输出目录
 parent_dir = os.path.dirname(frames_dir)
 folder_name = os.path.basename(frames_dir)
@@ -386,7 +387,7 @@ def main():
     mark_indices = []
     last_line = None
     last_length = None
-    mark_step = 20  # 当前是每隔20帧标注一次（即两帧编号差为20）
+    mark_step = 20  # 修改为每隔10帧标注一次（即两帧编号差为10）
     while idx >= 0:
         frame_path = os.path.join(frames_dir, frames[idx])
         print(f"处理帧: {frames[idx]}")

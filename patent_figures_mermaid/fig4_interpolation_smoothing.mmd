@@ -1,0 +1,11 @@
+%% 图4 插值与平滑处理示意图
+flowchart TB
+    classDef bw fill:#ffffff,stroke:#000,stroke-width:1px,color:#000;
+    classDef gray fill:#f2f2f2,stroke:#000,color:#000;
+
+    P1[关键帧序列 索引 mark_indices 中心 centers 长度 lengths]:::bw
+    P2[线性插值 使用 interp1d 与 t_key]:::gray
+    P3[Savitzky-Golay 平滑 窗口17 阶3 关键帧保持不变]:::bw
+    P4[得到每帧中心 cx 与 cy 及长度 l]:::gray
+
+    P1 --> P2 --> P3 --> P4

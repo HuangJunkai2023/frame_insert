@@ -1,0 +1,19 @@
+flowchart TB
+    classDef bw fill:#ffffff,stroke:#000,stroke-width:1px,color:#000;
+    classDef gray fill:#f2f2f2,stroke:#000,color:#000;
+
+    A[输入帧序列 .jpg 排序]:::bw
+    B[起始帧选择界面 方向键±5移动，回车确认]:::gray
+    C[关键帧标注 水平约束/长度递减/左绘右重/回车确认/ESC终止]:::bw
+    D[线性插值 + SG平滑 窗口17、阶3；关键帧保持不变]:::gray
+    E[批量插入 中心对齐；按宽度缩放 关键帧可旋转（批量不旋转）]:::bw
+    F{ROI裁剪 + 尺寸检查}:::gray
+    G[泊松融合 cv2.seamlessClone NORMAL_CLONE]:::bw
+    H[失败回退：保存原图]:::bw
+    I[掩码生成 alpha&gt;10→二值；保存至 output_dir/masks]:::gray
+    J[视频编码 result.mp4 / mask_result.mp4 30fps]:::bw
+    K[备份/替换 备份原始帧；仅替换被改帧；掩码移动/覆盖/补全黑掩码]:::gray
+
+    A --> B --> C --> D --> E --> F
+    F -- 合法 --> G --> I --> J --> K
+    F -- 非法/异常 --> H --> I

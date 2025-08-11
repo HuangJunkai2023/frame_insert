@@ -1,0 +1,15 @@
+%% 图6 掩码生成与文件组织示意图
+flowchart TB
+    classDef bw fill:#ffffff,stroke:#000,stroke-width:1px,color:#000;
+    classDef gray fill:#f2f2f2,stroke:#000,color:#000;
+
+    M1[alpha阈值化 >10→255 否则0]:::bw
+    M2[保存掩码 output_dir/masks/<帧名>_mask.jpg]:::gray
+    M3[掩码视频 mask_result.mp4 30fps]:::bw
+    M4{同级掩码目录是否已存在?}:::gray
+    M5[存在 仅覆盖本轮修改帧掩码 移动掩码视频至 insert 自动后缀]:::bw
+    M6[不存在 移动并改名为 <folder>_mask 为未修改帧补全黑掩码 移动掩码视频至 insert]:::bw
+
+    M1 --> M2 --> M3 --> M4
+    M4 -- 是 --> M5
+    M4 -- 否 --> M6
